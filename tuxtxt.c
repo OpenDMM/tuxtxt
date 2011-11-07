@@ -172,6 +172,7 @@ int main(int argc, char **argv)
 {
 	char cvs_revision[] = "$Revision: 1.108 $";
 
+	int demux = 0;
 	int cnt=0;
 	int rc_num = 0;
 #if !TUXTXT_CFG_STANDALONE
@@ -187,17 +188,30 @@ int main(int argc, char **argv)
 
 	tuxtxt_SetRenderingDefaults(&renderinfo);
 	/* get params */
-	tuxtxt_cache.vtxtpid = renderinfo.fb = lcd = renderinfo.sx = renderinfo.ex = renderinfo.sy = renderinfo.ey = -1;
+	tuxtxt_cache.vtxtpid = 0;
+	renderinfo.fb = lcd = renderinfo.sx = renderinfo.ex = renderinfo.sy = renderinfo.ey = -1;
 	if (argc==1)
 	{
-		printf("\nUSAGE: tuxtxt vtpid\n");
-		printf("No PID given, so scanning for PIDs ...\n\n");
-		tuxtxt_cache.vtxtpid=0;
+		printf("\nUSAGE: tuxtxt [demux] [vtpid]\n");
+		printf("No Demux and PID given, so using demux0 and scanning for PIDs ...\n\n");
 	}
-	else 
+	else
 	{
-		tuxtxt_cache.vtxtpid = atoi(argv[1]);
+		demux = atoi(argv[1]);
+		if (argc > 2)
+			tuxtxt_cache.vtxtpid = atoi(argv[2]);
+		else
+		{
+			printf("\nUSAGE: tuxtxt [demux] [vtpid]\n");
+			printf("No PID given, so scanning for PIDs ...\n\n");
+		}
 	}
+
+#if HAVE_DVB_API_VERSION < 3
+	snprintf(tuxtxt_cache.demux, 64, "/dev/dvb/card0/demux%d", demux);
+#else
+	snprintf(tuxtxt_cache.demux, 64, "/dev/dvb/adapter0/demux%d", demux);
+#endif
 
 	/* open Framebuffer */
 	if ((renderinfo.fb=open("/dev/fb/0", O_RDWR)) == -1)
@@ -616,7 +630,7 @@ int Init()
 	tuxtxt_init_demuxer();
 	tuxtxt_start_thread();
 #else
-	tuxtxt_start(tuxtxt_cache.vtxtpid);
+	tuxtxt_start(tuxtxt_cache.vtxtpid, -1);
 #endif
 
 
@@ -1821,7 +1835,7 @@ void ConfigMenu(int Init)
 								tuxtxt_cache.vtxtpid = pid_table[current_pid].vtxt_pid;
 								tuxtxt_start_thread();
 #else
-								tuxtxt_start(pid_table[current_pid].vtxt_pid);
+								tuxtxt_start(pid_table[current_pid].vtxt_pid, -1);
 #endif
 							}
 //							tuxtxt_cache.pageupdate = 1;
