@@ -1,0 +1,17 @@
+AC_INIT(tuxbox-tuxtxt-32bpp,1.96)
+AM_INIT_AUTOMAKE(tuxbox-tuxtxt-32bpp,1.96)
+
+TUXBOX_APPS
+TUXBOX_APPS_DIRECTORY
+TUXBOX_APPS_DVB
+TUXBOX_APPS_DRIVER
+
+# Checks for programs.
+AC_PROG_CC
+
+TUXBOX_APPS_LIB_CONFIG(FREETYPE,freetype-config)
+TUXBOX_APPS_LIB_PKGCONFIG(TUXTXT,tuxbox-tuxtxt)
+
+AC_OUTPUT(Makefile)
+AC_OUTPUT(font/Makefile)
+AC_OUTPUT(python/Makefile)

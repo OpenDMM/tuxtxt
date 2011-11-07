@@ -1,37 +1,18 @@
-SUBDIRS = font 
+installdir = $(CONFIGDIR)/tuxtxt
 
-if BOXTYPE_DREAMBOX
+SUBDIRS = font python
+
 AM_CPPFLAGS = \
 	@FREETYPE_CFLAGS@ \
+	-funsigned-char \
 	-I$(top_srcdir)/include \
-	-I$(includedir)/tuxbox/tuxtxt 
+	-I$(prefix)/$(includedir)/tuxbox/tuxtxt 
 
-tuxtxt_la_LIBADD = \
+bin_PROGRAMS = tuxtxt
+tuxtxt_LDADD = -lpthread -lz \
 	@FREETYPE_LIBS@ \
 	@TUXTXT_LIBS@
-else
-AM_CPPFLAGS = \
-	@TUXBOX_CFLAGS@ \
-	@FREETYPE_CFLAGS@ \
-	-I$(top_srcdir)/include \
-	-I$(includedir)/tuxbox/tuxtxt 
 
-tuxtxt_la_LIBADD = \
-	@TUXBOX_LIBS@  \
-	@FREETYPE_LIBS@ \
-	@TUXTXT_LIBS@ 
-endif
+tuxtxt_SOURCES = tuxtxt.c
 
-noinst_LTLIBRARIES = tuxtxt.la
-
-tuxtxt_la_SOURCES = tuxtxt.c
-
-tuxtxt_la_LDFLAGS = -rpath $(PLUGINDIR) -module -avoid-version
-
-install-exec-local:
-	install -d $(DESTDIR)$(PLUGINDIR)
-	install -d $(DESTDIR)$(CONFIGDIR)
-	install -d $(DESTDIR)$(CONFIGDIR)/tuxtxt
-	$(LIBTOOL) --mode=install install tuxtxt.la $(DESTDIR)$(PLUGINDIR)
-	install -m 0644 $(srcdir)/tuxtxt.cfg $(DESTDIR)$(PLUGINDIR)
-	install -m 0644 $(srcdir)/tuxtxt.conf $(DESTDIR)$(CONFIGDIR)/tuxtxt
+install_DATA = tuxtxt2.conf
