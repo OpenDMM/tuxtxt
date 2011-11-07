@@ -7,12 +7,43 @@
  *                       and DBLuelle <dbluelle@blau-weissoedingen.de>        *
  *	russian and arabic support by Leonid Protasov <Lprot@mail.ru>         *
  *                                                                            *
+ *              ported 2006 to Dreambox 7025 / 32Bit framebuffer              *
+ *                   by Seddi <seddi@i-have-a-dreambox.com>                   *
+ *                                                                            *
+ *              ported 32Bit framebuffer to Tuxtxt v1.99 (2008)               *
+ *                      by the PLi team (Sat-Turner)                          *
+ *                                                                            *
+ *              ported to 20090130                                            *
+ *                      by the PLi team (pieterg)                             *
+ *                                                                            *
  ******************************************************************************/
 
 
 
 #include "tuxtxt.h"
 
+static char saved_wss[32];
+static char saved_pin8[32];
+
+void readproc(const char* source, char *dest)
+{
+	FILE *f=fopen(source, "rt");
+	if(f)
+	{
+		fgets(dest, 255, f);
+		fclose(f);
+	}
+}
+
+void writeproc(const char* dest, const char *value)
+{
+	FILE *f=fopen(dest, "w");
+	if (f)
+	{
+		fwrite(value, strlen(value), 1, f);
+		fclose(f);
+	}
+}
 
 int getIndexOfPageInHotlist()
 {
@@ -137,10 +168,11 @@ void dump_page()
  * plugin_exec                                                                *
  ******************************************************************************/
 
-void plugin_exec(PluginParam *par)
+int main(int argc, char **argv)
 {
 	char cvs_revision[] = "$Revision: 1.108 $";
 
+	int cnt=0;
 #if !TUXTXT_CFG_STANDALONE
 	int initialized = tuxtxt_init();
 	if ( initialized )
@@ -150,30 +182,70 @@ void plugin_exec(PluginParam *par)
 	/* show versioninfo */
 	sscanf(cvs_revision, "%*s %s", versioninfo);
 	printf("TuxTxt %s\n", versioninfo);
+	printf("for 32bpp framebuffer\n");
 
 	tuxtxt_SetRenderingDefaults(&renderinfo);
 	/* get params */
 	tuxtxt_cache.vtxtpid = renderinfo.fb = lcd = rc = renderinfo.sx = renderinfo.ex = renderinfo.sy = renderinfo.ey = -1;
-
-	for (; par; par = par->next)
+	if (argc==1)
 	{
-		if (!strcmp(par->id, P_ID_VTXTPID))
-			tuxtxt_cache.vtxtpid = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_FBUFFER))
-			renderinfo.fb = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_LCD))
-			lcd = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_RCINPUT))
-			rc = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_OFF_X))
-			renderinfo.sx = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_END_X))
-			renderinfo.ex = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_OFF_Y))
-			renderinfo.sy = atoi(par->val);
-		else if (!strcmp(par->id, P_ID_END_Y))
-			renderinfo.ey = atoi(par->val);
+		printf("\nUSAGE: tuxtxt vtpid\n");
+		printf("No PID given, so scanning for PIDs ...\n\n");
+		tuxtxt_cache.vtxtpid=0;
 	}
+	else 
+	{
+		tuxtxt_cache.vtxtpid = atoi(argv[1]);
+	}
+
+	/* open Framebuffer */
+	if ((renderinfo.fb=open("/dev/fb/0", O_RDWR)) == -1)
+	{
+		perror("TuxTxt <open /dev/fb/0>");
+		return 0;
+	}
+	rc=-1;
+	while(1)
+	{
+		struct stat s;
+		char tmp[128];
+		sprintf(tmp, "/dev/input/event%d", cnt);
+		if (stat(tmp, &s))
+			break;
+		/* open Remote Control */
+		if ((rc=open(tmp, O_RDONLY)) == -1)
+		{
+			perror("TuxTxt <open remote control>");
+			return 0;
+		}
+		if (ioctl(rc, EVIOCGNAME(128), tmp) < 0)
+			perror("EVIOCGNAME failed");
+		if (strstr(tmp, "remote control"))
+			break;
+		close(rc);
+		rc=-1;
+		++cnt;
+	}
+
+	if (rc == -1)
+	{
+		printf("couldnt find correct input device!!!\n");
+		return -1;
+	}
+
+	/* open LCD  */
+	if ((lcd=open("/dev/dbox/lcd0", O_RDWR)) == -1)
+	{
+		perror("TuxTxt <open /dev/dbox/lcd0>");
+		return 0;
+	}
+
+	renderinfo.previousbackcolor = tuxtxt_color_transp;
+	renderinfo.zoommode = 0;
+	renderinfo.sx = 80;
+	renderinfo.ex = 620;
+	renderinfo.sy = 30;
+	renderinfo.ey = 555;
 
 	if (tuxtxt_cache.vtxtpid == -1 || renderinfo.fb == -1 || rc == -1 || renderinfo.sx == -1 || renderinfo.ex == -1 || renderinfo.sy == -1 || renderinfo.ey == -1)
 	{
@@ -242,6 +314,7 @@ void plugin_exec(PluginParam *par)
 					int vendor = 3; /* values unknown, rely on requested values */
 #endif
 
+#if 0
 					if (vendor < 3) /* scart-parameters only known for 3 dboxes, FIXME: order must be like in info.h */
 					{
 						for (i = 0; i < 6; i++) /* FIXME: FBLK seems to cause troubles */
@@ -274,6 +347,7 @@ void plugin_exec(PluginParam *par)
 								perror("TuxTxt <ioctl(avs)>");
 						}
 					}
+#endif
 					continue; /* otherwise ignore exit key */
 				}
 				default:
@@ -487,6 +561,14 @@ int Init()
 				dumpl25 = ival & 1;
 			else if (1 == sscanf(line, "UseTTF %i", &ival))
 				renderinfo.usettf = ival & 1;
+			else if (1 == sscanf(line, "StartX %i", &ival))
+				renderinfo.sx = ival;
+			else if (1 == sscanf(line, "EndX %i", &ival))
+				renderinfo.ex = ival;
+			else if (1 == sscanf(line, "StartY %i", &ival))
+				renderinfo.sy = ival;
+			else if (1 == sscanf(line, "EndY %i", &ival))
+				renderinfo.ey = ival;
 		}
 		fclose(conf);
 	}
@@ -534,6 +616,12 @@ int Init()
 #endif
 
 
+	readproc("/proc/stb/denc/0/wss", saved_wss);
+	writeproc("/proc/stb/denc/0/wss", saamodes[renderinfo.screen_mode1]);
+
+	readproc("/proc/stb/avs/0/sb", saved_pin8);
+	writeproc("/proc/stb/avs/0/sb", fncmodes[renderinfo.screen_mode1]);
+
 	/* setup rc */
 	ioctl(rc, RC_IOCTL_BCODES, 1);
 
@@ -568,8 +656,6 @@ void CleanUp()
 	if (tuxtxt_cache.dmx != -1)
     	    close(tuxtxt_cache.dmx);
 	tuxtxt_cache.dmx = -1;
-#else
-	tuxtxt_stop();
 #endif
 
 	if (restoreaudio)
@@ -579,6 +665,7 @@ void CleanUp()
 #else
 		int vendor = 3; /* values unknown, rely on requested values */
 #endif
+#if 0
 		if (vendor < 3) /* scart-parameters only known for 3 dboxes, FIXME: order must be like in info.h */
 		{
 			for (i = 1; i < 6; i += 2) /* restore dvb audio */
@@ -588,9 +675,17 @@ void CleanUp()
 					perror("TuxTxt <ioctl(avs)>");
 			}
 		}
+#endif
 	}
 
+	/* close lcd */
+	close(lcd);
+	
+	/* close rc */
+	close(rc);
 
+	lcd = rc = -1;
+ 
 	if (hotlistchanged)
 		savehotlist();
 
@@ -623,10 +718,20 @@ void CleanUp()
 			fprintf(conf, "ShowLevel2p5 %d\n", renderinfo.showl25);
 			fprintf(conf, "DumpLevel2p5 %d\n", dumpl25);
 			fprintf(conf, "UseTTF %d\n", renderinfo.usettf);
+			fprintf(conf, "StartX %d\n", renderinfo.sx);
+			fprintf(conf, "EndX %d\n", renderinfo.ex);
+			fprintf(conf, "StartY %d\n", renderinfo.sy);
+			fprintf(conf, "EndY %d\n", renderinfo.ey);
 			fclose(conf);
 		}
 	}
 	tuxtxt_EndRendering(&renderinfo);
+
+	/* close framebuffer */
+	close(renderinfo.fb);
+
+	writeproc("/proc/stb/avs/0/sb", saved_pin8);
+	writeproc("/proc/stb/denc/0/wss", saved_wss);
 }
 /******************************************************************************
  * GetTeletextPIDs                                                           *
@@ -1308,6 +1413,7 @@ void ConfigMenu(int Init)
 					memset(&menu[Menu_Width*MenuLine[M_COL] + 3+renderinfo.color_mode  ], 0x20,24-renderinfo.color_mode);
 					Menu_HighlightLine(menu, MenuLine[menuitem], 1);
 					tuxtxt_setcolors(&renderinfo,(unsigned short *)tuxtxt_defaultcolors, 0, tuxtxt_color_SIZECOLTABLE);
+					Menu_Init(menu, current_pid, menuitem, hotindex);
 					break;
 				case M_TRA:
 					saveconfig = 1;
@@ -1319,6 +1425,7 @@ void ConfigMenu(int Init)
 					memset(&menu[Menu_Width*MenuLine[M_TRA] + 3+renderinfo.trans_mode  ], 0x20,24-renderinfo.trans_mode);
 					Menu_HighlightLine(menu, MenuLine[menuitem], 1);
 					tuxtxt_setcolors(&renderinfo,(unsigned short *)tuxtxt_defaultcolors, 0, tuxtxt_color_SIZECOLTABLE);
+					Menu_Init(menu, current_pid, menuitem, hotindex);
 					break;
 				case M_PID:
 				{
@@ -1421,6 +1528,7 @@ void ConfigMenu(int Init)
 					memset(&menu[Menu_Width*MenuLine[M_COL] + 3+renderinfo.color_mode  ], 0x20,24-renderinfo.color_mode);
 					Menu_HighlightLine(menu, MenuLine[menuitem], 1);
 					tuxtxt_setcolors(&renderinfo,(unsigned short *)tuxtxt_defaultcolors, 0, tuxtxt_color_SIZECOLTABLE);
+					Menu_Init(menu, current_pid, menuitem, hotindex);
 					break;
 				case M_TRA:
 					saveconfig = 1;
@@ -1432,6 +1540,7 @@ void ConfigMenu(int Init)
 					memset(&menu[Menu_Width*MenuLine[M_TRA] + 3+renderinfo.trans_mode  ], 0x20,24-renderinfo.trans_mode);
 					Menu_HighlightLine(menu, MenuLine[menuitem], 1);
 					tuxtxt_setcolors(&renderinfo,(unsigned short *)tuxtxt_defaultcolors, 0, tuxtxt_color_SIZECOLTABLE);
+					Menu_Init(menu, current_pid, menuitem, hotindex);
 					break;
 				case M_PID:
 					if (!getpidsdone)
@@ -1731,8 +1840,8 @@ void ConfigMenu(int Init)
 					memcpy(&menu[Menu_Width*MenuLine[M_SC1] + Menu_Width - 5], &configonoff[menulanguage][renderinfo.screen_mode1  ? 3 : 0], 3);
 					Menu_HighlightLine(menu, MenuLine[menuitem], 1);
 
-					ioctl(renderinfo.avs, AVSIOSSCARTPIN8, &fncmodes[renderinfo.screen_mode1]);
-					ioctl(renderinfo.saa, SAAIOSWSS, &saamodes[renderinfo.screen_mode1]);
+					writeproc("/proc/stb/avs/0/sb", fncmodes[renderinfo.screen_mode1]);
+					writeproc("/proc/stb/denc/0/wss", saamodes[renderinfo.screen_mode1]);
 
 					break;
 
@@ -1857,7 +1966,8 @@ void PageInput(int Number)
 	}
 
 	/* generate pagenumber */
-	temp_page |= Number << renderinfo.inputcounter*4;
+	if (renderinfo.inputcounter >= 0)
+		temp_page |= Number << renderinfo.inputcounter*4;
 
 	renderinfo.inputcounter--;
 
@@ -2318,8 +2428,8 @@ void SwitchTranspMode()
 	else if (renderinfo.transpmode == 1) /* semi-transparent BG with FG text */
 	{
 		/* restore videoformat */
-		ioctl(renderinfo.avs, AVSIOSSCARTPIN8, &renderinfo.fnc_old);
-		ioctl(renderinfo.saa, SAAIOSWSS, &renderinfo.saa_old);
+		writeproc("/proc/stb/avs/0/sb", saved_pin8);
+		writeproc("/proc/stb/denc/0/wss", saved_wss);
 
 		tuxtxt_ClearBB(&renderinfo,tuxtxt_color_transp);
 		tuxtxt_cache.pageupdate = 1;
@@ -2327,8 +2437,8 @@ void SwitchTranspMode()
 	else /* TV mode */
 	{
 		/* restore videoformat */
-		ioctl(renderinfo.avs, AVSIOSSCARTPIN8, &renderinfo.fnc_old);
-		ioctl(renderinfo.saa, SAAIOSWSS, &renderinfo.saa_old);
+		writeproc("/proc/stb/avs/0/sb", saved_pin8);
+		writeproc("/proc/stb/denc/0/wss", saved_wss);
 
 		tuxtxt_ClearFB(&renderinfo,tuxtxt_color_transp);
 		renderinfo.clearbbcolor = tuxtxt_cache.FullScrColor;
@@ -2765,8 +2875,8 @@ int GetRCCode()
 				case KEY_VOLUMEDOWN:	RCCode = RC_MINUS;	break;
 				case KEY_MUTE:		RCCode = RC_MUTE;	break;
 				case KEY_HELP:		RCCode = RC_HELP;	break;
-				case KEY_SETUP:		RCCode = RC_DBOX;	break;
-				case KEY_HOME:		RCCode = RC_HOME;	break;
+				case KEY_MENU:		RCCode = RC_DBOX;	break;
+				case KEY_EXIT:		RCCode = RC_HOME;	break;
 				case KEY_POWER:		RCCode = RC_STANDBY;	break;
 				}
 				return 1;
@@ -2794,10 +2904,3 @@ int GetRCCode()
 
 	return 0;
 }
-/* Local Variables: */
-/* indent-tabs-mode:t */
-/* tab-width:3 */
-/* c-basic-offset:3 */
-/* comment-column:0 */
-/* fill-column:120 */
-/* End: */
